@@ -1,6 +1,7 @@
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
+use colored::Colorize;
 
-use crate::setup_queries::{assign_db_ownership, create_database, create_database_role, set_database_role_login};
+use crate::setup_queries::{assign_db_ownership, create_database, create_database_role, create_tracking_tables, is_schema_change_applied, mark_schema_change_applied, set_database_role_login};
 
 pub mod setup_queries;
 
@@ -30,6 +31,14 @@ struct Role {
 struct Database {
     name: String,
     owner: String,
+    schema_dump_file: String,
+    schemas: Vec<Schema>
+}
+
+#[derive(Deserialize)]
+struct Schema {
+    name: String,
+    owner: String,
 }
 
 #[tokio::main]
@@ -37,11 +46,12 @@ async fn main() -> Result<()> {
     let init_db = "postgres";
     let config_file = "./config.yaml";
     let data_dir = "./data";
-    let schema_file = "./schema_dump.sql";
-    let apply_schema = false;
     let host = "127.0.0.1";
     let port = 5432;
-    let is_temp_db = false;
+    let is_temp_db = true;
+    let apply_schema = true;
+    let schema_dump_timestamp = 0;
+    let schema_dump_description = "schema_dump";
 
     let yaml_str = std::fs::read_to_string(config_file)?;
     let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
@@ -55,24 +65,6 @@ async fn main() -> Result<()> {
         .temporary(is_temp_db)
         .config("max_connections", "100")
         .build();
-
-    //TODO: This needs to be per-db in the db vec
-    let schema = if apply_schema {
-        Some(
-            std::fs::read_to_string(schema_file)?
-                .lines()
-                .filter(|line| {
-                    !matches!(
-                        line.split_whitespace().next(),
-                        Some("\\restrict" | "\\unrestrict")
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    } else {
-        None
-    };
 
     let mut postgresql = PostgreSQL::new(settings);
     postgresql.setup().await?;
@@ -95,13 +87,63 @@ async fn main() -> Result<()> {
             assign_db_ownership(&main_pool, &database.name, &database.owner).await?;
         }
 
+        let owner = config
+            .roles
+            .iter()
+            .find(|role| role.name == database.owner)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Missing credentials for database owner: {}", database.owner),
+                )
+            })?;
+
+        let options = sqlx::postgres::PgConnectOptions::new()
+            .host(host)
+            .port(port)
+            .username(&owner.name)
+            .password(&owner.password)
+            .database(&database.name);
+
+
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
-            .connect(&postgresql.settings().url(&database.name))
+            .connect_with(options)
             .await?;
+        
+
+        let schema = if apply_schema {
+            Some(
+                std::fs::read_to_string(&database.schema_dump_file)?
+                    .lines()
+                    .filter(|line| {
+                        !matches!(
+                            line.split_whitespace().next(),
+                            Some("\\restrict" | "\\unrestrict")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+        } else {
+            None
+        };
 
         if let Some(schema) = &schema {
-            sqlx::raw_sql(schema).execute(&pool).await?;
+            if !is_schema_change_applied(&pool, schema_dump_timestamp).await? {
+                println!("Applying schema for database {}", database.name.cyan());
+                sqlx::raw_sql(schema).execute(&pool).await?;
+                create_tracking_tables(&pool).await?;
+                mark_schema_change_applied(&pool, schema_dump_timestamp, schema_dump_description).await?;
+            } else {
+                println!("Schema has already been applied for database {}; Skipping to avoid conflicts", database.name.cyan());
+            }
+        } else {
+            create_tracking_tables(&pool).await?;
+        }
+
+        for schema in &database.schemas {
+            println!("{} {}", schema.name, schema.owner)
         }
 
         pool.close().await;
@@ -109,6 +151,7 @@ async fn main() -> Result<()> {
 
     tokio::signal::ctrl_c().await?;
 
+    println!("Gracefully shutting down");
     main_pool.close().await;
     postgresql.stop().await
 }

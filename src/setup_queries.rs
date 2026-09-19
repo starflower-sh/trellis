@@ -1,6 +1,73 @@
 use sqlx::{Pool, Postgres};
 use colored::Colorize;
 
+pub async fn create_tracking_tables(
+    pool: &Pool<Postgres>,
+) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(
+        r#"
+        CREATE SCHEMA IF NOT EXISTS starflower_trellis;
+
+        CREATE TABLE IF NOT EXISTS starflower_trellis.schema_migrations (
+            version BIGINT NOT NULL PRIMARY KEY,
+            description TEXT NOT NULL
+        );
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn mark_schema_change_applied(
+    pool: &Pool<Postgres>,
+    version: i64,
+    description: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO
+            starflower_trellis.schema_migrations (version, description)
+        VALUES
+            ($1, $2);
+        "#,
+    )
+    .bind(version)
+    .bind(description)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn is_schema_change_applied(
+    pool: &Pool<Postgres>,
+    version: i64,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM starflower_trellis.schema_migrations
+            WHERE version = $1
+        );
+        "#,
+    )
+    .bind(version)
+    .fetch_one(pool)
+    .await;
+
+    match result {
+        Err(sqlx::Error::Database(error))
+            if error.code().as_deref() == Some("42P01") =>
+        {
+            Ok(false)
+        }
+        other => other,
+    }
+}
+
 pub async fn check_role_exists(
     pool: &Pool<Postgres>,
     user: &str,
