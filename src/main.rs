@@ -8,8 +8,15 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Config {
+    superuser: Superuser,
     roles: Vec<Role>,
     databases: Vec<Database>,
+}
+
+#[derive(Deserialize)]
+struct Superuser {
+    name: String,
+    password: String,
 }
 
 #[derive(Deserialize)]
@@ -27,8 +34,6 @@ struct Database {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let superuser = "postgres";
-    let superuser_password = "postgres";
     let init_db = "postgres";
     let config_file = "./config.yaml";
     let data_dir = "./data";
@@ -44,8 +49,8 @@ async fn main() -> Result<()> {
     let settings = SettingsBuilder::new()
         .host(host)
         .port(port)
-        .username(superuser)
-        .password(superuser_password)
+        .username(&config.superuser.name)
+        .password(&config.superuser.password)
         .data_dir(data_dir)
         .temporary(is_temp_db)
         .config("max_connections", "100")
