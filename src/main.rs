@@ -15,9 +15,11 @@ async fn main() -> Result<()> {
     let databases = vec!["test"];
 
     let data_dir = "./data";
+    let schema_file = "./schema_dump.sql";
+    let apply_schema = false;
     let host = "127.0.0.1";
     let port = 5432;
-    let is_temp_db = false;
+    let is_temp_db = true;
 
     let settings = SettingsBuilder::new()
         .host(host)
@@ -28,6 +30,24 @@ async fn main() -> Result<()> {
         .temporary(is_temp_db)
         .config("max_connections", "100")
         .build();
+
+    //TODO: This needs to be per-db in the db vec
+    let schema = if apply_schema {
+        Some(
+            std::fs::read_to_string(schema_file)?
+                .lines()
+                .filter(|line| {
+                    !matches!(
+                        line.split_whitespace().next(),
+                        Some("\\restrict" | "\\unrestrict")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    } else {
+        None
+    };
 
     let mut postgresql = PostgreSQL::new(settings);
     postgresql.setup().await?;
@@ -43,29 +63,24 @@ async fn main() -> Result<()> {
     }
 
     for database in &databases {
-        create_database(&main_pool, database, users[0]).await?;
+        if !postgresql.database_exists(database).await? {
+            create_database(&main_pool, database, users[0]).await?;
+        }
 
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(5)
             .connect(&postgresql.settings().url(database))
             .await?;
 
-        let setup_result: Result<()> = async {
-            create_database_user(&pool, users[0], user_password).await?;
-
-            if !postgresql.database_exists(database).await? {
-                create_database(&pool, database, user_password).await?;
-            }
-
-            Ok(())
+        if let Some(schema) = &schema {
+            sqlx::raw_sql(schema).execute(&pool).await?;
         }
-        .await;
-        setup_result?;
+
+        pool.close().await;
     }
 
-    let shutdown_result = tokio::signal::ctrl_c().await;
+    tokio::signal::ctrl_c().await?;
 
-    shutdown_result?;
-    let stop_result = postgresql.stop().await;
-    stop_result
+    main_pool.close().await;
+    postgresql.stop().await
 }
