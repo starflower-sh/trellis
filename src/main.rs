@@ -6,12 +6,14 @@ pub mod setup_queries;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let bootstrap_admin_user = "postgres";
-    let bootstrap_db = "postgres";
+    let superuser = "postgres";
+    let superuser_password = "postgres";
+    let init_db = "postgres";
 
-    let admin_user = "admin";
-    let admin_password = "password";
-    let db_name = "test";
+    let users = vec!["admin"];
+    let user_password = "password"; // TODO: Make users a map vec
+    let databases = vec!["test"];
+
     let data_dir = "./data";
     let host = "127.0.0.1";
     let port = 5432;
@@ -20,8 +22,8 @@ async fn main() -> Result<()> {
     let settings = SettingsBuilder::new()
         .host(host)
         .port(port)
-        .username(admin_user)
-        .password(admin_password)
+        .username(superuser)
+        .password(superuser_password)
         .data_dir(data_dir)
         .temporary(is_temp_db)
         .config("max_connections", "100")
@@ -31,43 +33,39 @@ async fn main() -> Result<()> {
     postgresql.setup().await?;
     postgresql.start().await?;
 
-    let result: Result<()> = async {
-        let mut bootstrap_settings = postgresql.settings().clone();
-        bootstrap_settings.username = bootstrap_admin_user.to_owned();
+    let main_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&postgresql.settings().url(init_db))
+        .await?;
 
-        let bootstrap_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&bootstrap_settings.url(bootstrap_db))
+    for user in &users {
+        create_database_user(&main_pool, user, user_password).await?;
+    }
+
+    for database in &databases {
+        create_database(&main_pool, database, users[0]).await?;
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&postgresql.settings().url(database))
             .await?;
 
         let setup_result: Result<()> = async {
-            create_database_user(&bootstrap_pool, admin_user, admin_password).await?;
+            create_database_user(&pool, users[0], user_password).await?;
 
-            if !postgresql.database_exists(db_name).await? {
-                create_database(&bootstrap_pool, db_name, admin_user).await?;
+            if !postgresql.database_exists(database).await? {
+                create_database(&pool, database, user_password).await?;
             }
 
             Ok(())
         }
         .await;
-
-        bootstrap_pool.close().await;
         setup_result?;
-
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&postgresql.settings().url(db_name))
-            .await?;
-
-        let shutdown_result = tokio::signal::ctrl_c().await;
-        pool.close().await;
-        shutdown_result?;
-
-        Ok(())
     }
-    .await;
 
+    let shutdown_result = tokio::signal::ctrl_c().await;
+
+    shutdown_result?;
     let stop_result = postgresql.stop().await;
-    result?;
     stop_result
 }
