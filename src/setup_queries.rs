@@ -26,7 +26,7 @@ pub async fn check_role_exists(
     return Ok(exists);
 }
 
-pub async fn create_database_user(
+pub async fn create_database_role(
     pool: &Pool<Postgres>,
     user: &str,
     password: &str,
@@ -40,12 +40,11 @@ pub async fn create_database_user(
 
         let statement: String = sqlx::query_scalar(
             r#"
-            SELECT
-                format(
-                    'CREATE USER %I WITH PASSWORD %L LOGIN',
-                    $1::text,
-                    $2::text
-                );
+            SELECT format(
+                'CREATE ROLE %I WITH PASSWORD %L',
+                $1::text,
+                $2::text
+            );
             "#,
         )
         .bind(user)
@@ -57,6 +56,36 @@ pub async fn create_database_user(
             .execute(&mut *conn)
             .await?;
     }
+
+    Ok(())
+}
+
+pub async fn set_database_role_login(
+    pool: &Pool<Postgres>,
+    user: &str,
+    grant_login: bool,
+) -> Result<(), sqlx::Error> {
+    let mut conn = pool.acquire().await?;
+
+    println!("Setting login as {grant_login} for user: {user}");
+
+    let statement: String = sqlx::query_scalar(
+        r#"
+        SELECT format(
+            'ALTER ROLE %I %s',
+            $1::text,
+            CASE WHEN $2::boolean THEN 'LOGIN' ELSE 'NOLOGIN' END
+        );
+        "#,
+    )
+    .bind(user)
+    .bind(grant_login)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::raw_sql(&statement)
+        .execute(&mut *conn)
+        .await?;
 
     Ok(())
 }
