@@ -1,6 +1,6 @@
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
 
-use crate::setup_queries::{create_database, create_database_role, set_database_role_login};
+use crate::setup_queries::{assign_db_ownership, create_database, create_database_role, set_database_role_login};
 
 pub mod setup_queries;
 
@@ -86,6 +86,8 @@ async fn main() -> Result<()> {
     for database in &config.databases {
         if !postgresql.database_exists(&database.name).await? {
             create_database(&main_pool, &database.name, &database.owner).await?;
+        } else {
+            assign_db_ownership(&main_pool, &database.name, &database.owner).await?;
         }
 
         let pool = sqlx::postgres::PgPoolOptions::new()
