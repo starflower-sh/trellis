@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
 
     if args.serve {
         tokio::signal::ctrl_c().await?;
-        println!("Gracefully shutting down");
+        println!("Gracefully shutting down postgres server");
     }
 
     main_pool.close().await;
