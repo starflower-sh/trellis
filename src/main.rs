@@ -2,6 +2,8 @@ use clap::Parser;
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
 use serde::Deserialize;
 
+use crate::create::handle_create;
+
 pub mod setup_queries;
 pub mod apply;
 pub mod create;
@@ -71,11 +73,19 @@ struct Args {
 
     #[arg(short = 'S', long)]
     schema: bool,
+
+    #[arg(short = 'd', long, default_value = "")]
+    description: String,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+
+    if args.create {
+        let _ = handle_create(&args)?;
+        return Ok(());
+    }
 
     let init_db = "postgres";
     let config_file = "./config.yaml";
