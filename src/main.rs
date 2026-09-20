@@ -96,28 +96,40 @@ async fn main() -> Result<()> {
     let yaml_str = std::fs::read_to_string(config_file)?;
     let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
 
-    let settings = SettingsBuilder::new()
+    let mut postgresql = if args.serve {
+        let settings = SettingsBuilder::new()
+            .host(host)
+            .port(port)
+            .username(&config.superuser.name)
+            .password(&config.superuser.password)
+            .data_dir(data_dir)
+            .temporary(args.temporary_db)
+            .config("max_connections", "100")
+            .build();
+
+        let mut postgresql = PostgreSQL::new(settings);
+        postgresql.setup().await?;
+        postgresql.start().await?;
+        Some(postgresql)
+    } else {
+        None
+    };
+
+    let connection_options = sqlx::postgres::PgConnectOptions::new()
         .host(host)
         .port(port)
         .username(&config.superuser.name)
         .password(&config.superuser.password)
-        .data_dir(data_dir)
-        .temporary(args.temporary_db)
-        .config("max_connections", "100")
-        .build();
-
-    let mut postgresql = PostgreSQL::new(settings);
-    postgresql.setup().await?;
-    postgresql.start().await?;
+        .database(init_db);
 
     let main_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
-        .connect(&postgresql.settings().url(init_db))
+        .connect_with(connection_options)
         .await?;
 
     if args.apply {
         apply::handle_apply(
-            &postgresql,
+            postgresql.as_ref(),
             &main_pool,
             &config,
             &args,
@@ -127,9 +139,16 @@ async fn main() -> Result<()> {
         .await?;
     }
 
-    tokio::signal::ctrl_c().await?;
+    if args.serve {
+        tokio::signal::ctrl_c().await?;
+        println!("Gracefully shutting down");
+    }
 
-    println!("Gracefully shutting down");
     main_pool.close().await;
-    postgresql.stop().await
+
+    if let Some(postgresql) = postgresql.as_mut() {
+        postgresql.stop().await?;
+    }
+
+    Ok(())
 }

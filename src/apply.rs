@@ -14,7 +14,7 @@ use crate::setup_queries::{
 use crate::{Args, Config, Database};
 
 pub(crate) async fn handle_apply(
-    postgresql: &PostgreSQL,
+    postgresql: Option<&PostgreSQL>,
     main_pool: &PgPool,
     config: &Config,
     args: &Args,
@@ -78,7 +78,7 @@ pub(crate) async fn handle_apply(
 }
 
 pub(crate) async fn apply_config(
-    postgresql: &PostgreSQL,
+    postgresql: Option<&PostgreSQL>,
     main_pool: &PgPool,
     config: &Config,
 ) -> Result<()> {
@@ -88,10 +88,26 @@ pub(crate) async fn apply_config(
     }
 
     for database in &config.databases {
-        if !postgresql.database_exists(&database.name).await? {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)",
+        )
+        .bind(&database.name)
+        .fetch_one(main_pool)
+        .await?;
+
+        if exists {
+            assign_db_ownership(main_pool, &database.name, &database.owner).await?;
+        } else if postgresql.is_some() {
             create_database(main_pool, &database.name, &database.owner).await?;
         } else {
-            assign_db_ownership(main_pool, &database.name, &database.owner).await?;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "Database {} does not exist; database creation requires --serve",
+                    database.name
+                ),
+            )
+            .into());
         }
 
         for schema in &database.schemas {
