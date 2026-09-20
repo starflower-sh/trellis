@@ -1,6 +1,7 @@
 use clap::{Parser, ValueEnum};
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
 use serde::Deserialize;
+use colored::Colorize;
 
 use crate::create::handle_create;
 
@@ -73,13 +74,7 @@ struct Args {
     #[arg(short = 's', long)]
     serve: bool,
 
-    #[arg(
-        short = 't',
-        long,
-        default_value_t = true,
-        action = clap::ArgAction::Set,
-        requires = "serve"
-    )]
+    #[arg(short = 't', long, requires="serve")]
     temporary_db: bool,
 
     #[arg(short = 'S', long)]
@@ -108,6 +103,11 @@ async fn main() -> Result<()> {
     let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
 
     let mut postgresql = if args.serve {
+        println!(
+            "Starting a {} Postgres server",
+            if args.temporary_db { "temporary" } else { "persistent" }.cyan(),
+        );
+
         let settings = SettingsBuilder::new()
             .host(host)
             .port(port)
