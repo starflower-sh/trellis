@@ -7,7 +7,7 @@ use postgresql_embedded::Result;
 use crate::Args;
 
 pub(crate) fn handle_create(args: &Args) -> Result<()> {
-    if args.migration {
+    if args.migration.is_some() {
         //TODO: Make it so the path where it creates the migration is the specified db migration
         // dir path (if it makes sense to)
         create_migration(".", &args.description)?;

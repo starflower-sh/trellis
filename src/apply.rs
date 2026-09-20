@@ -11,7 +11,7 @@ use crate::setup_queries::{
     mark_schema_change_applied,
     set_database_role_login,
 };
-use crate::{Args, Config, Database};
+use crate::{Args, Config, Database, MigrationAction};
 
 pub(crate) async fn handle_apply(
     postgresql: Option<&PostgreSQL>,
@@ -25,7 +25,7 @@ pub(crate) async fn handle_apply(
         apply_config(postgresql, main_pool, config).await?;
     }
 
-    if !args.schema && !args.migration {
+    if !args.schema && args.migration.is_none() {
         return Ok(());
     }
 
@@ -62,13 +62,24 @@ pub(crate) async fn handle_apply(
             create_tracking_tables(&pool).await?;
         }
 
-        if args.migration {
-            apply_migrations(
-                &pool,
-                &database.name,
-                &database.migrations_dir,
-            )
-            .await?;
+        match args.migration {
+            Some(MigrationAction::Up) => {
+                apply_migrations(
+                    &pool,
+                    &database.name,
+                    &database.migrations_dir,
+                )
+                .await?;
+            }
+            Some(MigrationAction::Rollback) => {
+                rollback_migration(
+                    &pool,
+                    &database.name,
+                    &database.migrations_dir,
+                )
+                .await?;
+            }
+            None => {}
         }
 
         pool.close().await;
@@ -268,3 +279,69 @@ pub async fn apply_migrations(
 
     Ok(())
 }
+
+pub async fn rollback_migration(
+    pool: &PgPool,
+    database_name: &str,
+    migrations_dir: &str,
+) -> Result<()> {
+    let mut transaction = pool.begin().await?;
+
+    sqlx::query(
+        "LOCK TABLE starflower_trellis.schema_migrations IN SHARE ROW EXCLUSIVE MODE",
+    )
+    .execute(&mut *transaction)
+    .await?;
+
+    let migration: Option<(i64, String)> = sqlx::query_as(
+        "SELECT version, description
+         FROM starflower_trellis.schema_migrations
+         WHERE version > 0
+         ORDER BY version DESC
+         LIMIT 1",
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+
+    let Some((version, description)) = migration else {
+        transaction.commit().await?;
+        println!(
+            "Database {}: No migrations to roll back",
+            database_name.cyan(),
+        );
+        return Ok(());
+    };
+
+    let path = std::path::Path::new(migrations_dir)
+        .join(format!("{version:014}_{description}.down.sql"));
+
+    let sql = std::fs::read_to_string(&path).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("Failed to read rollback migration {}: {error}", path.display()),
+        )
+    })?;
+
+    println!(
+        "Database {}: Rolling back migration {:014}_{}",
+        database_name.cyan(),
+        version,
+        description.cyan(),
+    );
+
+    sqlx::raw_sql(&sql)
+        .execute(&mut *transaction)
+        .await?;
+
+    sqlx::query(
+        "DELETE FROM starflower_trellis.schema_migrations WHERE version = $1",
+    )
+    .bind(version)
+    .execute(&mut *transaction)
+    .await?;
+
+    transaction.commit().await?;
+
+    Ok(())
+}
+

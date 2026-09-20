@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
 use serde::Deserialize;
 
@@ -43,7 +43,12 @@ struct Schema {
     owner: String,
 }
 
-//TODO: Make it only serve if serve is true - otherwise it should connect to an existing db
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum MigrationAction {
+    Up,
+    Rollback,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
@@ -53,8 +58,14 @@ struct Args {
     #[arg(short = 'c', long, conflicts_with = "apply")]
     create: bool,
 
-    #[arg(short = 'm', long)]
-    migration: bool,
+    #[arg(
+        short = 'm',
+        long,
+        value_enum,
+        num_args = 0..=1,
+        default_missing_value = "up"
+    )]
+    migration: Option<MigrationAction>,
 
     #[arg(short = 'C', long)]
     config: bool,
