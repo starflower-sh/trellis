@@ -1,5 +1,6 @@
 use postgresql_embedded::Result;
 use sqlx::PgPool;
+use colored::Colorize;
 
 use crate::{Args, apply::{apply_migrations, rollback_migration}, setup_queries::create_tracking_tables};
 
@@ -30,7 +31,7 @@ async fn test_migrations(
             break;
         }
     }
-   println!("Successfully applied and rolled back all migrations");
+   println!("{}", "Successfully applied and rolled back all migrations".green());
 
     Ok(())
 }
