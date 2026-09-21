@@ -82,6 +82,15 @@ struct Args {
 
     #[arg(short = 'd', long, default_value = "")]
     description: String,
+
+    #[arg(long, default_value_t = 5432)]
+    port: u16,
+
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
+
+    #[arg(long, default_value = "postgres")]
+    init_db: String,
 }
 
 #[tokio::main]
@@ -93,11 +102,8 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let init_db = "postgres";
     let config_file = "./config.yaml";
     let data_dir = "./data";
-    let host = "127.0.0.1";
-    let port = 5432;
 
     let yaml_str = std::fs::read_to_string(config_file)?;
     let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
@@ -109,8 +115,8 @@ async fn main() -> Result<()> {
         );
 
         let settings = SettingsBuilder::new()
-            .host(host)
-            .port(port)
+            .host(&args.host)
+            .port(args.port)
             .username(&config.superuser.name)
             .password(&config.superuser.password)
             .data_dir(data_dir)
@@ -127,11 +133,11 @@ async fn main() -> Result<()> {
     };
 
     let connection_options = sqlx::postgres::PgConnectOptions::new()
-        .host(host)
-        .port(port)
+        .host(&args.host)
+        .port(args.port)
         .username(&config.superuser.name)
         .password(&config.superuser.password)
-        .database(init_db);
+        .database(&args.init_db);
 
     let main_pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(5)
@@ -144,8 +150,8 @@ async fn main() -> Result<()> {
             &main_pool,
             &config,
             &args,
-            host,
-            port,
+            &args.host,
+            args.port,
         )
         .await?;
     }
