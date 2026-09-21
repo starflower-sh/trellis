@@ -7,6 +7,7 @@ use crate::create::handle_create;
 
 pub mod setup_queries;
 pub mod apply;
+pub mod test;
 pub mod create;
 
 #[derive(Deserialize)]
@@ -53,11 +54,14 @@ enum MigrationAction {
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    #[arg(short = 'a', long, conflicts_with = "create")]
+    #[arg(short = 'a', long, conflicts_with = "create", conflicts_with="test")]
     apply: bool,
 
-    #[arg(short = 'c', long, conflicts_with = "apply")]
+    #[arg(short = 'c', long, conflicts_with = "apply", conflicts_with="test")]
     create: bool,
+
+    #[arg(short = 't', long, conflicts_with = "apply", conflicts_with="create")]
+    test: bool,
 
     #[arg(
         short = 'm',
@@ -74,7 +78,7 @@ struct Args {
     #[arg(short = 's', long)]
     serve: bool,
 
-    #[arg(short = 't', long, requires="serve")]
+    #[arg(short = 'T', long, requires="serve")]
     temporary_db: bool,
 
     #[arg(short = 'S', long)]
@@ -96,6 +100,8 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    let temp_db = args.temporary_db || args.test;
+    let serve = args.serve || args.test;
 
     if args.create {
         let _ = handle_create(&args)?;
@@ -108,10 +114,10 @@ async fn main() -> Result<()> {
     let yaml_str = std::fs::read_to_string(config_file)?;
     let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
 
-    let mut postgresql = if args.serve {
+    let mut postgresql = if serve {
         println!(
             "Starting a {} Postgres server",
-            if args.temporary_db { "temporary" } else { "persistent" }.cyan(),
+            if temp_db { "temporary" } else { "persistent" }.cyan(),
         );
 
         let settings = SettingsBuilder::new()
@@ -120,7 +126,7 @@ async fn main() -> Result<()> {
             .username(&config.superuser.name)
             .password(&config.superuser.password)
             .data_dir(data_dir)
-            .temporary(args.temporary_db)
+            .temporary(temp_db)
             .config("max_connections", "100")
             .build();
 
@@ -154,9 +160,15 @@ async fn main() -> Result<()> {
             args.port,
         )
         .await?;
+    } else if args.test{
+        test::handle_test(
+            &main_pool,
+            &args,
+        )
+        .await?;
     }
 
-    if args.serve {
+    if serve & !args.test {
         tokio::signal::ctrl_c().await?;
         println!("Gracefully shutting down postgres server");
     }

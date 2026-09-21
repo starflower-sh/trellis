@@ -284,7 +284,7 @@ pub async fn rollback_migration(
     pool: &PgPool,
     database_name: &str,
     migrations_dir: &str,
-) -> Result<()> {
+) -> Result<u16> {
     let mut transaction = pool.begin().await?;
 
     sqlx::query(
@@ -309,7 +309,7 @@ pub async fn rollback_migration(
             "Database {}: No migrations to roll back",
             database_name.cyan(),
         );
-        return Ok(());
+        return Ok(404);
     };
 
     let path = std::path::Path::new(migrations_dir)
@@ -342,6 +342,6 @@ pub async fn rollback_migration(
 
     transaction.commit().await?;
 
-    Ok(())
+    Ok(200)
 }
 
