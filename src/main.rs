@@ -95,6 +95,12 @@ struct Args {
 
     #[arg(long, default_value = "postgres")]
     init_db: String,
+
+    #[arg(long, default_value = "./trellis.yaml")]
+    config_file: String,
+
+    #[arg(long, default_value = "./data")]
+    pgdata: String,
 }
 
 #[tokio::main]
@@ -108,11 +114,20 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let config_file = "./config.yaml";
-    let data_dir = "./data";
-
-    let yaml_str = std::fs::read_to_string(config_file)?;
-    let config: Config = serde_saphyr::from_str(&yaml_str).unwrap(); // TODO: Remove unwrap
+    let yaml_str = match std::fs::read_to_string(&args.config_file) {
+        Ok(yaml_str) => yaml_str,
+        Err(err) => {
+            eprintln!("Failed to read config file got error:\n{}", err);
+            std::process::exit(1);
+        }
+    };
+    let config: Config = match serde_saphyr::from_str(&yaml_str) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("Failed to parse config file got error:\n{}", err);
+            std::process::exit(1);
+        }
+    };
 
     let mut postgresql = if serve {
         println!(
@@ -125,7 +140,7 @@ async fn main() -> Result<()> {
             .port(args.port)
             .username(&config.superuser.name)
             .password(&config.superuser.password)
-            .data_dir(data_dir)
+            .data_dir(&args.pgdata)
             .temporary(temp_db)
             .config("max_connections", "100")
             .build();
@@ -138,6 +153,7 @@ async fn main() -> Result<()> {
         None
     };
 
+    //TODO: Needs to handle SSL
     let connection_options = sqlx::postgres::PgConnectOptions::new()
         .host(&args.host)
         .port(args.port)
