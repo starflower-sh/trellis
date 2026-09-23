@@ -1,5 +1,7 @@
+#![forbid(unsafe_code)]
+
 use clap::{Parser, ValueEnum};
-use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder};
+use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder, VersionReq};
 use serde::Deserialize;
 use colored::Colorize;
 
@@ -12,6 +14,7 @@ pub mod create;
 
 #[derive(Deserialize)]
 struct Config {
+    version: String,
     superuser: Superuser,
     roles: Vec<Role>,
     databases: Vec<Database>,
@@ -134,6 +137,7 @@ async fn main() -> Result<()> {
             "Starting a {} Postgres server",
             if temp_db { "temporary" } else { "persistent" }.cyan(),
         );
+        let pg_version = VersionReq::parse(&config.version)?;
 
         let settings = SettingsBuilder::new()
             .host(&args.host)
@@ -142,6 +146,7 @@ async fn main() -> Result<()> {
             .password(&config.superuser.password)
             .data_dir(&args.pgdata)
             .temporary(temp_db)
+            .version(pg_version)
             .config("max_connections", "100")
             .build();
 
