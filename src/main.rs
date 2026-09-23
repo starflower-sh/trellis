@@ -4,6 +4,7 @@ use clap::{Parser, ValueEnum};
 use postgresql_embedded::{PostgreSQL, Result, SettingsBuilder, VersionReq};
 use serde::Deserialize;
 use colored::Colorize;
+use dotenv::dotenv;
 
 use crate::create::handle_create;
 
@@ -117,6 +118,8 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenv().ok();
+
     let args = Args::parse();
     let temp_db = args.temporary_db || args.test;
     let serve = args.serve || args.test;
@@ -141,6 +144,14 @@ async fn main() -> Result<()> {
         }
     };
 
+    let superuser_password  = match subst::substitute(&config.superuser.password, &subst::Env) {
+        Ok(password) => password,
+        Err(err) => {
+            eprintln!("Failed to parse superuser password:\n{}", err);
+            std::process::exit(1);
+        },
+    };
+
     let mut postgresql = if serve {
         println!(
             "Starting a {} Postgres server",
@@ -152,7 +163,7 @@ async fn main() -> Result<()> {
             .host(&args.host)
             .port(args.port)
             .username(&config.superuser.name)
-            .password(&config.superuser.password)
+            .password(&superuser_password)
             .data_dir(&args.pgdata)
             .temporary(temp_db)
             .version(pg_version)
@@ -180,7 +191,7 @@ async fn main() -> Result<()> {
         .host(&args.host)
         .port(args.port)
         .username(&config.superuser.name)
-        .password(&config.superuser.password)
+        .password(&superuser_password)
         .database(&args.init_db);
 
     let main_pool = sqlx::postgres::PgPoolOptions::new()

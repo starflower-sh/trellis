@@ -34,11 +34,19 @@ pub(crate) async fn handle_apply(
                 )
             })?;
 
+        let owner_password  = match subst::substitute(&owner.password, &subst::Env) {
+            Ok(password) => password,
+            Err(err) => {
+                eprintln!("Failed to parse database owner password:\n{}", err);
+                std::process::exit(1);
+            },
+        };
+
         let options = sqlx::postgres::PgConnectOptions::new()
             .host(host)
             .port(port)
             .username(&owner.name)
-            .password(&owner.password)
+            .password(&owner_password)
             .database(&database.name);
 
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -47,11 +55,19 @@ pub(crate) async fn handle_apply(
             .await?;
 
         if let Some(extensions) = &database.extensions {
+            let superuser_password  = match subst::substitute(&config.superuser.password, &subst::Env) {
+                Ok(password) => password,
+                Err(err) => {
+                    eprintln!("Failed to parse superuser password:\n{}", err);
+                    std::process::exit(1);
+                },
+            };
+
             let privileged_options = sqlx::postgres::PgConnectOptions::new()
                 .host(host)
                 .port(port)
                 .username(&config.superuser.name)
-                .password(&config.superuser.password)
+                .password(&superuser_password)
                 .database(&database.name);
 
             let privileged_pool = sqlx::postgres::PgPoolOptions::new()
@@ -104,7 +120,15 @@ pub(crate) async fn apply_config(
     config: &Config,
 ) -> Result<()> {
     for role in &config.roles {
-        create_database_role(main_pool, &role.name, &role.password).await?;
+        let role_password  = match subst::substitute(&role.password, &subst::Env) {
+            Ok(password) => password,
+            Err(err) => {
+                eprintln!("Failed to parse database owner password:\n{}", err);
+                std::process::exit(1);
+            },
+        };
+
+        create_database_role(main_pool, &role.name, &role_password).await?;
         set_database_role_login(main_pool, &role.name, role.login).await?;
     }
 
