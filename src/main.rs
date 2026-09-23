@@ -15,10 +15,18 @@ pub mod create;
 #[derive(Deserialize)]
 struct Config {
     version: String,
+    config: Option<Vec<ConfigItem>>,
     superuser: Superuser,
     roles: Vec<Role>,
     databases: Vec<Database>,
 }
+
+#[derive(Deserialize)]
+struct ConfigItem {
+    key: String,
+    value: String,
+}
+
 
 #[derive(Deserialize)]
 struct Superuser {
@@ -39,6 +47,7 @@ struct Database {
     owner: String,
     schema_dump_file: String,
     migrations_dir: String,
+    extensions: Option<Vec<String>>,
     schemas: Vec<Schema>,
 }
 
@@ -139,7 +148,7 @@ async fn main() -> Result<()> {
         );
         let pg_version = VersionReq::parse(&config.version)?;
 
-        let settings = SettingsBuilder::new()
+        let mut builder = SettingsBuilder::new()
             .host(&args.host)
             .port(args.port)
             .username(&config.superuser.name)
@@ -147,8 +156,16 @@ async fn main() -> Result<()> {
             .data_dir(&args.pgdata)
             .temporary(temp_db)
             .version(pg_version)
-            .config("max_connections", "100")
-            .build();
+            .config("max_connections", "100");
+
+        if let Some(config_args) = &config.config {
+            for item in config_args {
+                println!("Setting config: {} = {}", item.key, item.value);
+                builder = builder.config(&item.key, &item.value);
+            }
+        }
+
+        let settings = builder.build();
 
         let mut postgresql = PostgreSQL::new(settings);
         postgresql.setup().await?;
@@ -190,6 +207,7 @@ async fn main() -> Result<()> {
     }
 
     if serve & !args.test {
+        println!("Postgres server ready to accept connections");
         tokio::signal::ctrl_c().await?;
         println!("Gracefully shutting down postgres server");
     }

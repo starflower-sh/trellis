@@ -3,13 +3,7 @@ use postgresql_embedded::{PostgreSQL, Result};
 use sqlx::PgPool;
 
 use crate::setup_queries::{
-    assign_db_ownership,
-    create_database,
-    create_database_role,
-    create_tracking_tables,
-    is_schema_change_applied,
-    mark_schema_change_applied,
-    set_database_role_login,
+    assign_db_ownership, create_database, create_database_role, create_extension, create_tracking_tables, is_schema_change_applied, mark_schema_change_applied, set_database_role_login
 };
 use crate::{Args, Config, Database, MigrationAction};
 
@@ -23,10 +17,6 @@ pub(crate) async fn handle_apply(
 ) -> Result<()> {
     if args.config {
         apply_config(postgresql, main_pool, config).await?;
-    }
-
-    if !args.schema && args.migration.is_none() {
-        return Ok(());
     }
 
     for database in &config.databases {
@@ -55,6 +45,26 @@ pub(crate) async fn handle_apply(
             .max_connections(5)
             .connect_with(options)
             .await?;
+
+        if let Some(extensions) = &database.extensions {
+            let privileged_options = sqlx::postgres::PgConnectOptions::new()
+                .host(host)
+                .port(port)
+                .username(&config.superuser.name)
+                .password(&config.superuser.password)
+                .database(&database.name);
+
+            let privileged_pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(5)
+                .connect_with(privileged_options)
+                .await?;
+
+            for extension in extensions {
+                create_extension(&privileged_pool, &database.name, &extension).await?;
+            }
+
+            privileged_pool.close().await;
+        }
 
         if args.schema {
             apply_schema_dump(&pool, database).await?;

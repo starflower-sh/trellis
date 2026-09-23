@@ -224,3 +224,31 @@ pub async fn assign_db_ownership(
 
     Ok(())
 }
+
+pub async fn create_extension(
+    pool: &Pool<Postgres>,
+    db_name: &str,
+    extension_name: &str,
+) -> Result<(), sqlx::Error> {
+    println!("Setting up exension {} on database {}", extension_name.cyan(), db_name.cyan());
+
+    let mut conn = pool.acquire().await?;
+
+    let statement: String = sqlx::query_scalar(
+        r#"
+        SELECT format(
+            'CREATE EXTENSION IF NOT EXISTS %I',
+            $1::text
+        );
+        "#,
+    )
+    .bind(extension_name)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::raw_sql(&statement)
+        .execute(&mut *conn)
+        .await?;
+
+    Ok(())
+}
