@@ -1,7 +1,15 @@
 [package]
-name = "trellis"
+name = "pg-trellis"
 version = "0.1.0"
+authors = ["Charlie Eeles <charlie@starflower.sh>"]
 edition = "2024"
+license = "Apache-2.0"
+description = "Tool to easily configure and run Postgres servers"
+repository = "https://github.com/starflower-sh/trellis"
+
+[[bin]]
+name = "trellis"
+path = "src/main.rs"
 
 [dependencies]
 postgresql_embedded = "0.20.2"
