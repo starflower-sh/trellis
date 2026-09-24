@@ -1,0 +1,38 @@
+version: "*"
+
+config:
+  - key: shared_preload_libraries
+    value: "pg_stat_statements,auto_explain"
+
+superuser:
+  name: postgres
+  password: ${SUPERUSER_PASSWORD:example}
+
+roles:
+  - name: charlie
+    password: ${SPONGE_PASSWORD:example}
+    login: true
+
+  - name: bridget
+    password: ${PANCHO_PASSWORD:example}
+    login: true
+
+databases:
+  - name: sample_db
+    owner: charlie
+    schema_dump_file: "./schema_dump.sql"
+    migrations_dir: "./migrations"
+    extensions:
+      - pg_stat_statements
+      - pg_buffercache
+    schemas:
+      - name: accounts
+        owner: charlie
+        privileges:
+          usage:
+            - charlie
+            - bridget
+          create:
+            - charlie
+            - bridget
+
