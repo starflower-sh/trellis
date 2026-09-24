@@ -3,7 +3,7 @@ use postgresql_embedded::{PostgreSQL, Result};
 use sqlx::PgPool;
 
 use crate::setup_queries::{
-    assign_db_ownership, create_database, create_database_role, create_extension, create_tracking_tables, is_schema_change_applied, mark_schema_change_applied, set_database_role_login
+    assign_db_ownership, create_database, create_database_role, create_extension, create_schema, create_tracking_tables, grant_schema_privilege, is_schema_change_applied, mark_schema_change_applied, set_database_role_login
 };
 use crate::{Args, Config, Database, MigrationAction};
 
@@ -82,6 +82,47 @@ pub(crate) async fn handle_apply(
             privileged_pool.close().await;
         }
 
+
+        if let Some(schemas) = &database.schemas {
+            let superuser_password  = match subst::substitute(&config.superuser.password, &subst::Env) {
+                Ok(password) => password,
+                Err(err) => {
+                    eprintln!("Failed to parse superuser password:\n{}", err);
+                    std::process::exit(1);
+                },
+            };
+
+            let privileged_options = sqlx::postgres::PgConnectOptions::new()
+                .host(host)
+                .port(port)
+                .username(&config.superuser.name)
+                .password(&superuser_password)
+                .database(&database.name);
+
+            let privileged_pool = sqlx::postgres::PgPoolOptions::new()
+                .max_connections(5)
+                .connect_with(privileged_options)
+                .await?;
+
+            for schema in schemas {
+                create_schema(&privileged_pool, &schema.name, &schema.owner, &database.name).await?;
+                if let Some(privileges) = &schema.privileges {
+                    if let Some(usage) = &privileges.usage {
+                        for role in usage {
+                            grant_schema_privilege(&privileged_pool, &schema.name, role, &database.name, "USAGE").await?;
+                        }
+                    }
+                    if let Some(create) = &privileges.create {
+                        for role in create {
+                            grant_schema_privilege(&privileged_pool, &schema.name, role, &database.name, "CREATE").await?;
+                        }
+                    }
+                }
+            }
+
+            privileged_pool.close().await;
+        }
+
         if args.schema {
             apply_schema_dump(&pool, database).await?;
         } else {
@@ -153,10 +194,6 @@ pub(crate) async fn apply_config(
                 ),
             )
             .into());
-        }
-
-        for schema in &database.schemas {
-            println!("{} {}", schema.name, schema.owner);
         }
     }
 

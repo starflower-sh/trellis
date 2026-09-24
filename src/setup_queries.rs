@@ -252,3 +252,70 @@ pub async fn create_extension(
 
     Ok(())
 }
+
+pub async fn create_schema(
+    pool: &Pool<Postgres>,
+    schema_name: &str,
+    schema_owner: &str,
+    db_name: &str,
+) -> Result<(), sqlx::Error> {
+    println!("Creating schema {} if it doesn't exist in database {} with owner {}", schema_name.cyan(), db_name.cyan(), schema_owner.cyan());
+
+    let mut conn = pool.acquire().await?;
+
+    let statement: String = sqlx::query_scalar(
+        r#"
+        SELECT
+            format(
+                'CREATE SCHEMA IF NOT EXISTS %I AUTHORIZATION %I',
+                $1::text,
+                $2::text
+            );
+        "#,
+    )
+    .bind(schema_name)
+    .bind(schema_owner)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::raw_sql(&statement)
+        .execute(&mut *conn)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn grant_schema_privilege(
+    pool: &Pool<Postgres>,
+    schema_name: &str,
+    role_name: &str,
+    db_name: &str,
+    privilege: &str,
+) -> Result<(), sqlx::Error> {
+    println!("Granting {} for schema {} in database {} to {}", privilege.cyan(), schema_name.cyan(), db_name.cyan(), role_name.cyan());
+
+    let mut conn = pool.acquire().await?;
+
+    let statement: String = sqlx::query_scalar(
+        r#"
+        SELECT
+            format(
+                'GRANT %s ON SCHEMA %I TO %I',
+                $1::text,
+                $2::text,
+                $3::text
+            );
+        "#,
+    )
+    .bind(privilege)
+    .bind(schema_name)
+    .bind(role_name)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::raw_sql(&statement)
+        .execute(&mut *conn)
+        .await?;
+
+    Ok(())
+}

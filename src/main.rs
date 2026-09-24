@@ -49,13 +49,20 @@ struct Database {
     schema_dump_file: String,
     migrations_dir: String,
     extensions: Option<Vec<String>>,
-    schemas: Vec<Schema>,
+    schemas: Option<Vec<Schema>>,
 }
 
 #[derive(Deserialize)]
 struct Schema {
     name: String,
     owner: String,
+    privileges: Option<SchemaPrivileges>
+}
+
+#[derive(Deserialize)]
+struct SchemaPrivileges {
+    usage: Option<Vec<String>>,
+    create: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
