@@ -319,3 +319,34 @@ pub async fn grant_schema_privilege(
 
     Ok(())
 }
+
+pub async fn grant_role_membership(
+    pool: &Pool<Postgres>,
+    group_role_name: &str,
+    member_role_name: &str,
+) -> Result<(), sqlx::Error> {
+    println!("Assigning {} to group {}", member_role_name.cyan(), group_role_name.cyan());
+
+    let mut conn = pool.acquire().await?;
+
+    let statement: String = sqlx::query_scalar(
+        r#"
+        SELECT
+            format(
+                'GRANT %s TO %s WITH INHERIT TRUE',
+                $1::text,
+                $2::text
+            );
+        "#,
+    )
+    .bind(group_role_name)
+    .bind(member_role_name)
+    .fetch_one(&mut *conn)
+    .await?;
+
+    sqlx::raw_sql(&statement)
+        .execute(&mut *conn)
+        .await?;
+
+    Ok(())
+}

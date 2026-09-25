@@ -10,12 +10,22 @@ superuser:
 
 roles:
   - name: charlie
-    password: ${SPONGE_PASSWORD:example}
+    password: ${CHARLIE_PASSWORD:example}
     login: true
 
   - name: bridget
-    password: ${PANCHO_PASSWORD:example}
+    password: ${BRIDGET_PASSWORD:example}
     login: true
+
+  - name: developer
+    password: ${DEVELOPER_PASSWORD:example}
+    login: false
+
+role_groups:
+  - role: developer
+    members:
+      - charlie
+      - bridget
 
 databases:
   - name: sample_db
@@ -30,9 +40,7 @@ databases:
         owner: charlie
         privileges:
           usage:
-            - charlie
-            - bridget
+            - developer
           create:
-            - charlie
-            - bridget
+            - developer
 

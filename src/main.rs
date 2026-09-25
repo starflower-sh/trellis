@@ -19,6 +19,7 @@ struct Config {
     config: Option<Vec<ConfigItem>>,
     superuser: Superuser,
     roles: Vec<Role>,
+    role_groups: Option<Vec<RoleGroup>>,
     databases: Vec<Database>,
 }
 
@@ -40,6 +41,12 @@ struct Role {
     name: String,
     password: String,
     login: bool,
+}
+
+#[derive(Deserialize)]
+struct RoleGroup {
+    role: String,
+    members: Vec<String>,
 }
 
 #[derive(Deserialize)]

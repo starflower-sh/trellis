@@ -3,7 +3,7 @@ use postgresql_embedded::{PostgreSQL, Result};
 use sqlx::PgPool;
 
 use crate::setup_queries::{
-    assign_db_ownership, create_database, create_database_role, create_extension, create_schema, create_tracking_tables, grant_schema_privilege, is_schema_change_applied, mark_schema_change_applied, set_database_role_login
+    assign_db_ownership, create_database, create_database_role, create_extension, create_schema, create_tracking_tables, grant_role_membership, grant_schema_privilege, is_schema_change_applied, mark_schema_change_applied, set_database_role_login
 };
 use crate::{Args, Config, Database, MigrationAction};
 
@@ -171,6 +171,14 @@ pub(crate) async fn apply_config(
 
         create_database_role(main_pool, &role.name, &role_password).await?;
         set_database_role_login(main_pool, &role.name, role.login).await?;
+    }
+
+    if let Some(role_groups) = &config.role_groups {
+        for group_role in role_groups {
+            for member_role in &group_role.members {
+                grant_role_membership(main_pool, &group_role.role, &member_role).await?;
+            }
+        }
     }
 
     for database in &config.databases {
